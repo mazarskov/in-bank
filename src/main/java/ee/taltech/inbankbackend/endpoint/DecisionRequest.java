@@ -12,4 +12,10 @@ public class DecisionRequest {
     private String personalCode;
     private Long loanAmount;
     private int loanPeriod;
+
+    // Constructor
+    public DecisionRequest() {
+        // Default constructor
+    }
+    
 }

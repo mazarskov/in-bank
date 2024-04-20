@@ -2,9 +2,11 @@ package ee.taltech.inbankbackend.service;
 
 import com.github.vladislavgoltjajev.personalcode.locale.estonia.EstonianPersonalCodeValidator;
 import ee.taltech.inbankbackend.config.DecisionEngineConstants;
+import ee.taltech.inbankbackend.exceptions.AgeRestrictionException;
 import ee.taltech.inbankbackend.exceptions.InvalidLoanAmountException;
 import ee.taltech.inbankbackend.exceptions.InvalidLoanPeriodException;
 import ee.taltech.inbankbackend.exceptions.InvalidPersonalCodeException;
+import ee.taltech.inbankbackend.exceptions.LowCreditScoreException;
 import ee.taltech.inbankbackend.exceptions.NoValidLoanException;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +21,8 @@ public class DecisionEngine {
     // Used to check for the validity of the presented ID code.
     private final EstonianPersonalCodeValidator validator = new EstonianPersonalCodeValidator();
     private int creditModifier = 0;
+    private double creditScore = 0;
+    private int age = 0;
 
     /**
      * Calculates the maximum loan amount and period for the customer based on their ID code,
@@ -37,7 +41,7 @@ public class DecisionEngine {
      */
     public Decision calculateApprovedLoan(String personalCode, Long loanAmount, int loanPeriod)
             throws InvalidPersonalCodeException, InvalidLoanAmountException, InvalidLoanPeriodException,
-            NoValidLoanException {
+            NoValidLoanException, LowCreditScoreException, AgeRestrictionException {
         try {
             verifyInputs(personalCode, loanAmount, loanPeriod);
         } catch (Exception e) {
@@ -46,9 +50,20 @@ public class DecisionEngine {
 
         int outputLoanAmount;
         creditModifier = getCreditModifier(personalCode);
+        creditScore = getCreditScore(creditModifier, loanAmount, loanPeriod);
+        age = getAge(personalCode);
 
+        if (isValidAge(age)) {
+            System.out.println(age);
+            throw new AgeRestrictionException("Ineligible age for loan!");
+        }
+        
         if (creditModifier == 0) {
             throw new NoValidLoanException("No valid loan found!");
+        }
+
+        if (creditScore < 1) {
+            throw new LowCreditScoreException("Credit score too low!");
         }
 
         while (highestValidLoanAmount(loanPeriod) < DecisionEngineConstants.MINIMUM_LOAN_AMOUNT) {
@@ -73,6 +88,16 @@ public class DecisionEngine {
         return creditModifier * loanPeriod;
     }
 
+    /*
+     * Calculates creadit score using (creaditModifier / loanAmount) * loanPeriod formula
+     */
+    
+    private double getCreditScore(int creditModifier, Long loanAmount, int loanPeriod) {
+        double calc = (double) creditModifier / loanAmount;
+        double creditScore = (double) calc * loanPeriod;
+        return creditScore;
+    }
+
     /**
      * Calculates the credit modifier of the customer to according to the last four digits of their ID code.
      * Debt - 0000...2499
@@ -95,6 +120,36 @@ public class DecisionEngine {
         }
 
         return DecisionEngineConstants.SEGMENT_3_CREDIT_MODIFIER;
+    }
+
+    /*
+     * Function to validate if a persons age is valid for a loan
+     */
+    private boolean isValidAge(int age) {
+        if (age < 18 || age > 79 - DecisionEngineConstants.MAXIMUM_LOAN_PERIOD) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+    /*
+     * Function to get age from IDs second and third number, assuming that all IDs follow Estonian ID format
+     */
+    private int getAge(String personalCode) {
+        int current = 2024;
+        int age = Integer.parseInt(personalCode.substring(1, 3));
+        int fullYear;
+
+        if (age >= 0 && age < 10) {
+            fullYear = Integer.parseInt("200" + age);
+            return current - fullYear;
+        } else if (age > 25) {
+            fullYear = Integer.parseInt("19" + age);
+            return current - fullYear;
+        } else {
+            fullYear = Integer.parseInt("20" + age);
+            return current - fullYear;
+        }
     }
 
     /**
